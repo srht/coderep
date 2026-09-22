@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runGit } from './git.js';
 import { listSnapshots, type Snapshot } from './shadow.js';
-import type { RepoContext } from './paths.js';
+import { storeArgs, type RepoContext } from './paths.js';
 
 export interface BisectOptions {
   /** How far back to search. */
@@ -42,7 +42,7 @@ async function probe(
   await rm(dir, { recursive: true, force: true });
 
   try {
-    await runGit(['worktree', 'add', '--detach', '--quiet', dir, snapshot.id], { cwd: ctx.root });
+    await runGit([...storeArgs(ctx), 'worktree', 'add', '--detach', '--quiet', dir, snapshot.id], { cwd: ctx.root });
 
     for (const name of options.link ?? []) {
       const source = join(ctx.root, name);
@@ -71,9 +71,9 @@ async function probe(
       });
     });
   } finally {
-    await runGit(['worktree', 'remove', '--force', dir], { cwd: ctx.root, allowFailure: true });
+    await runGit([...storeArgs(ctx), 'worktree', 'remove', '--force', dir], { cwd: ctx.root, allowFailure: true });
     await rm(dir, { recursive: true, force: true });
-    await runGit(['worktree', 'prune'], { cwd: ctx.root, allowFailure: true });
+    await runGit([...storeArgs(ctx), 'worktree', 'prune'], { cwd: ctx.root, allowFailure: true });
   }
 }
 

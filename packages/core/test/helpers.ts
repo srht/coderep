@@ -38,6 +38,9 @@ export async function visibleGitState(ctx: RepoContext): Promise<string> {
     ['branch', '--all'],
     ['stash', 'list'],
     ['rev-parse', 'HEAD'],
+    ['log', '--all', '--format=%H %s'],
+    ['show-ref'],
+    ['for-each-ref', '--format=%(refname)'],
     ['diff', '--stat'],
     ['diff', '--cached', '--stat'],
   ]) {

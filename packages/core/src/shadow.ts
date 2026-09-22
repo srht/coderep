@@ -1,7 +1,15 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { git, gitRaw, runGit } from './git.js';
 import { encodeMessage, decodeMessage, type SnapshotMeta, type SnapshotSource } from './meta.js';
-import { SNAPSHOT_REF, ignorePath, type RepoContext } from './paths.js';
+import {
+  SNAPSHOT_REF,
+  ensureStore,
+  ignorePath,
+  repoExcludePatterns,
+  storeArgs,
+  storeWorktreeArgs,
+  type RepoContext,
+} from './paths.js';
 
 /** coderep authors its own commits so snapshots work before `user.name` is configured. */
 const IDENTITY: Record<string, string> = {
@@ -29,7 +37,8 @@ export interface CreateOptions {
 }
 
 export async function readRef(ctx: RepoContext): Promise<string | null> {
-  const { stdout, code } = await runGit(['rev-parse', '--verify', '--quiet', SNAPSHOT_REF], {
+  await ensureStore(ctx);
+  const { stdout, code } = await runGit([...storeArgs(ctx), 'rev-parse', '--verify', '--quiet', SNAPSHOT_REF], {
     cwd: ctx.root,
     allowFailure: true,
   });
@@ -54,17 +63,17 @@ async function realBranch(ctx: RepoContext): Promise<string> {
 
 /** Reads .coderepignore into pathspec exclusions, so git's own global excludes stay intact. */
 async function extraExcludes(ctx: RepoContext): Promise<string[]> {
-  let raw: string;
+  let own: string[] = [];
   try {
-    raw = await readFile(ignorePath(ctx), 'utf8');
+    own = (await readFile(ignorePath(ctx), 'utf8'))
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'));
   } catch {
-    return [];
+    own = [];
   }
-  return raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('#'))
-    .map((pattern) => `:(exclude,glob)${pattern}`);
+  // The store has its own info/exclude, so the repository's must be forwarded.
+  return [...own, ...(await repoExcludePatterns(ctx))].map((pattern) => `:(exclude,glob)${pattern}`);
 }
 
 /**
@@ -73,9 +82,13 @@ async function extraExcludes(ctx: RepoContext): Promise<string[]> {
  */
 async function writeWorkingTree(ctx: RepoContext): Promise<string> {
   await mkdir(ctx.stateDir, { recursive: true });
+  await ensureStore(ctx);
   const excludes = await extraExcludes(ctx);
-  await runGit(['add', '-A', '--', '.', ...excludes], { cwd: ctx.root, indexFile: ctx.indexFile });
-  return git(['write-tree'], { cwd: ctx.root, indexFile: ctx.indexFile });
+  await runGit([...storeWorktreeArgs(ctx), 'add', '-A', '--', '.', ...excludes], {
+    cwd: ctx.root,
+    indexFile: ctx.indexFile,
+  });
+  return git([...storeArgs(ctx), 'write-tree'], { cwd: ctx.root, indexFile: ctx.indexFile });
 }
 
 /**
@@ -87,7 +100,7 @@ export async function createSnapshot(ctx: RepoContext, options: CreateOptions = 
   const parent = await readRef(ctx);
 
   if (parent) {
-    const parentTree = await git(['rev-parse', `${parent}^{tree}`], { cwd: ctx.root });
+    const parentTree = await git([...storeArgs(ctx), 'rev-parse', `${parent}^{tree}`], { cwd: ctx.root });
     if (parentTree === tree) return null;
   }
 
@@ -101,7 +114,7 @@ export async function createSnapshot(ctx: RepoContext, options: CreateOptions = 
     ...(options.turn ? { turn: options.turn } : {}),
   };
 
-  const commitArgs = ['commit-tree', tree];
+  const commitArgs = [...storeArgs(ctx), 'commit-tree', tree];
   if (parent) commitArgs.push('-p', parent);
   const id = await git(commitArgs, {
     cwd: ctx.root,
@@ -110,7 +123,7 @@ export async function createSnapshot(ctx: RepoContext, options: CreateOptions = 
   });
 
   // The old value is passed so a concurrent watcher cannot clobber this update.
-  await runGit(['update-ref', SNAPSHOT_REF, id, parent ?? ''], { cwd: ctx.root });
+  await runGit([...storeArgs(ctx), 'update-ref', SNAPSHOT_REF, id, parent ?? ''], { cwd: ctx.root });
 
   return { id, short: id.slice(0, 8), tree, parent, ts: Math.floor(Date.now() / 1000), meta };
 }
@@ -131,7 +144,7 @@ const FIELD = '\x1f';
 export async function listSnapshots(ctx: RepoContext, options: ListOptions = {}): Promise<Snapshot[]> {
   if (!(await readRef(ctx))) return [];
 
-  const args = ['log', `--format=%H${FIELD}%P${FIELD}%T${FIELD}%ct${FIELD}%B${RECORD}`];
+  const args = [...storeArgs(ctx), 'log', `--format=%H${FIELD}%P${FIELD}%T${FIELD}%ct${FIELD}%B${RECORD}`];
   if (options.limit) args.push(`-n`, String(options.limit));
   if (options.since) args.push(`--since=${Math.floor(options.since / 1000)}`);
   args.push(SNAPSHOT_REF);
@@ -158,8 +171,8 @@ export async function listSnapshots(ctx: RepoContext, options: ListOptions = {})
 }
 
 export async function resolveSnapshot(ctx: RepoContext, ref: string): Promise<Snapshot> {
-  const id = await git(['rev-parse', '--verify', `${ref}^{commit}`], { cwd: ctx.root });
-  const out = await gitRaw(['log', '-1', `--format=%H${FIELD}%P${FIELD}%T${FIELD}%ct${FIELD}%B`, id], {
+  const id = await git([...storeArgs(ctx), 'rev-parse', '--verify', `${ref}^{commit}`], { cwd: ctx.root });
+  const out = await gitRaw([...storeArgs(ctx), 'log', '-1', `--format=%H${FIELD}%P${FIELD}%T${FIELD}%ct${FIELD}%B`, id], {
     cwd: ctx.root,
   });
   const [, parents = '', tree = '', ts = '0', body = ''] = out.split(FIELD);
@@ -175,7 +188,7 @@ export async function resolveSnapshot(ctx: RepoContext, ref: string): Promise<Sn
 
 /** Files a snapshot changed relative to its parent, as `STATUS\tpath` lines. */
 export async function changedFiles(ctx: RepoContext, id: string): Promise<string[]> {
-  const out = await gitRaw(['diff-tree', '-r', '--root', '--no-commit-id', '--name-status', id], {
+  const out = await gitRaw([...storeArgs(ctx), 'diff-tree', '-r', '--root', '--no-commit-id', '--name-status', id], {
     cwd: ctx.root,
   });
   return out.split('\n').filter((line) => line.trim() !== '');
@@ -194,7 +207,7 @@ export async function diffSnapshots(
   options: DiffOptions = {},
 ): Promise<string> {
   const target = to ?? (await writeWorkingTree(ctx));
-  const args = ['diff', options.stat ? '--stat' : '--patch', from, target];
+  const args = [...storeArgs(ctx), 'diff', options.stat ? '--stat' : '--patch', from, target];
   if (options.paths?.length) args.push('--', ...options.paths);
   return gitRaw(args, { cwd: ctx.root });
 }
@@ -218,25 +231,27 @@ export interface RestoreResult {
  * and modifications, whole-tree and per-file alike.
  */
 export async function restore(ctx: RepoContext, target: string, options: RestoreOptions = {}): Promise<RestoreResult> {
-  const targetId = await git(['rev-parse', '--verify', `${target}^{commit}`], { cwd: ctx.root });
+  const targetId = await git([...storeArgs(ctx), 'rev-parse', '--verify', `${target}^{commit}`], { cwd: ctx.root });
 
   const taken = await createSnapshot(ctx, { label: 'restore öncesi', source: 'pre-restore' });
   const base = taken?.id ?? (await readRef(ctx));
   if (!base) throw new Error('Geri alınacak bir snapshot zinciri yok. Önce `coderep snap` çalıştırın.');
 
   const pathspec = options.files?.length ? ['--', ...options.files] : [];
-  const stat = await gitRaw(['diff', '--stat', base, targetId, ...pathspec], { cwd: ctx.root });
+  const stat = await gitRaw([...storeArgs(ctx), 'diff', '--stat', base, targetId, ...pathspec], { cwd: ctx.root });
   if (stat.trim() === '') return { applied: false, preRestore: base, stat: '', noop: true };
   if (options.dryRun) return { applied: false, preRestore: base, stat, noop: false };
 
-  const patch = await gitRaw(['diff', '--binary', base, targetId, ...pathspec], { cwd: ctx.root });
+  const patch = await gitRaw([...storeArgs(ctx), 'diff', '--binary', base, targetId, ...pathspec], { cwd: ctx.root });
+  // `git apply` only writes files, so it runs against the working tree directly.
   await runGit(['apply', '--whitespace=nowarn', '-'], { cwd: ctx.root, input: patch });
 
   return { applied: true, preRestore: base, stat, noop: false };
 }
 
 export async function deleteRef(ctx: RepoContext): Promise<void> {
-  await runGit(['update-ref', '-d', SNAPSHOT_REF], { cwd: ctx.root, allowFailure: true });
+  await ensureStore(ctx);
+  await runGit([...storeArgs(ctx), 'update-ref', '-d', SNAPSHOT_REF], { cwd: ctx.root, allowFailure: true });
 }
 
 export interface PruneOptions {
@@ -269,7 +284,7 @@ export async function prune(ctx: RepoContext, options: PruneOptions): Promise<Pr
 
   let parent: string | null = null;
   for (const snapshot of [...kept].reverse()) {
-    const args = ['commit-tree', snapshot.tree];
+    const args = [...storeArgs(ctx), 'commit-tree', snapshot.tree];
     if (parent) args.push('-p', parent);
     const stamp = new Date(snapshot.ts * 1000).toISOString();
     parent = await git(args, {
@@ -279,7 +294,7 @@ export async function prune(ctx: RepoContext, options: PruneOptions): Promise<Pr
     });
   }
 
-  await runGit(['update-ref', SNAPSHOT_REF, parent as string], { cwd: ctx.root });
+  await runGit([...storeArgs(ctx), 'update-ref', SNAPSHOT_REF, parent as string], { cwd: ctx.root });
   return { removed: all.length - kept.length, kept: kept.length };
 }
 
@@ -292,7 +307,7 @@ export interface RepoStats {
 
 export async function stats(ctx: RepoContext): Promise<RepoStats> {
   const snapshots = await listSnapshots(ctx, {});
-  const counts = await gitRaw(['count-objects', '-v'], { cwd: ctx.root });
+  const counts = await gitRaw([...storeArgs(ctx), 'count-objects', '-v'], { cwd: ctx.root });
   let sizeKiB = 0;
   for (const line of counts.split('\n')) {
     const match = /^(?:size|size-pack): (\d+)$/.exec(line.trim());

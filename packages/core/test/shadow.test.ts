@@ -33,6 +33,33 @@ describe('shadow snapshots', () => {
     }
   });
 
+  it('keeps snapshots out of the repository ref namespace entirely', async () => {
+    const repo = await makeRepo();
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        await write(repo, `src/file-${i}.ts`, `export const n = ${i};\n`);
+        await createSnapshot(repo, { label: `adim ${i}`, source: 'manual' });
+      }
+      expect(await listSnapshots(repo, {})).toHaveLength(5);
+
+      // Every command a developer might use to inspect history must stay blind
+      // to the snapshots.
+      const { stdout: all } = await gitIn(repo.root, ['log', '--all', '--oneline']);
+      expect(all.trim().split('\n')).toHaveLength(1);
+
+      const { stdout: refs } = await gitIn(repo.root, ['show-ref']);
+      expect(refs).not.toContain('coderep');
+
+      const { stdout: each } = await gitIn(repo.root, ['for-each-ref', '--format=%(refname)']);
+      expect(each).not.toContain('coderep');
+
+      const { stdout: fsck } = await gitIn(repo.root, ['fsck', '--no-progress']);
+      expect(fsck.trim()).toBe('');
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   it('skips a snapshot when nothing changed', async () => {
     const repo = await makeRepo();
     try {

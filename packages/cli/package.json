@@ -1,0 +1,21 @@
+{
+  "name": "coderep",
+  "version": "0.1.0",
+  "description": "AI kod editörleri için gölge-git checkpoint, geri alma ve bozulma avcısı",
+  "type": "module",
+  "bin": {
+    "coderep": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@coderep/core": "workspace:*",
+    "commander": "^13.0.0",
+    "@coderep/mcp": "workspace:*"
+  }
+}
