@@ -1,0 +1,22 @@
+{
+  "name": "@coderep/index",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@coderep/core": "workspace:*",
+    "picomatch": "^4.0.2",
+    "typescript": "^5.9.3",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/picomatch": "^3.0.1"
+  }
+}
