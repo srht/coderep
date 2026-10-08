@@ -46,6 +46,7 @@ export function buildMap(index: CodeIndex, options: MapOptions = {}): string {
   let truncatedFiles = 0;
 
   for (const entry of files) {
+    // Weight decides what survives truncation; line order decides how it reads.
     const chosen = entry.symbols
       .filter((symbol) => (options.includePrivate ? true : symbol.exported))
       .slice()
@@ -53,17 +54,20 @@ export function buildMap(index: CodeIndex, options: MapOptions = {}): string {
 
     if (chosen.length === 0) continue;
 
+    const byLine = chosen.slice().sort((a, b) => a.startLine - b.startLine);
+
     const header = `${entry.path}`;
-    const block: string[] = [header];
-    for (const symbol of chosen) {
-      const parent = symbol.parent ? `${symbol.parent}.` : '';
-      block.push(`  ${symbol.startLine}: ${symbol.kind} ${parent}${symbol.name}`);
-    }
+    const line = (symbol: (typeof chosen)[number]): string =>
+      `  ${symbol.startLine}: ${symbol.kind} ${symbol.parent ? `${symbol.parent}.` : ''}${symbol.name}`;
+
+    const block: string[] = [header, ...byLine.map(line)];
 
     const blockText = `${block.join('\n')}\n`;
     if (used + blockText.length > budgetChars) {
       // Try the header plus a couple of lines before giving up on this file.
-      const short = `${header}\n${block.slice(1, 3).join('\n')}\n`;
+      // Keep the two highest-value symbols, shown in line order.
+      const kept = chosen.slice(0, 2).sort((a, b) => a.startLine - b.startLine);
+      const short = `${header}\n${kept.map(line).join('\n')}\n`;
       if (used + short.length <= budgetChars) {
         lines.push(short.trimEnd());
         used += short.length;

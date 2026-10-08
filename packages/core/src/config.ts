@@ -12,6 +12,8 @@ export interface Config {
   watchIgnore: string[];
   /** Paths symlinked into a bisect worktree so commands can actually run. */
   bisectLink: string[];
+  /** Refresh the symbol index in the same debounced flush as the snapshot. */
+  indexOnWatch: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -32,6 +34,7 @@ export const DEFAULT_CONFIG: Config = {
     '**/.coderep/**',
   ],
   bisectLink: ['node_modules', '.venv', 'venv'],
+  indexOnWatch: true,
 };
 
 export async function loadConfig(ctx: RepoContext): Promise<Config> {

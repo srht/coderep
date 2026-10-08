@@ -10,6 +10,12 @@ export interface WatcherEvents {
   onSnapshot?: (snapshot: Snapshot) => void;
   /** Fired when files settled but the tree was byte-identical to the last snapshot. */
   onUnchanged?: () => void;
+  /**
+   * Runs after a snapshot, inside the same debounced flush. The symbol index
+   * hooks in here so `core` need not depend on `@coderep/index`, which would
+   * invert the dependency between the two packages.
+   */
+  onFlush?: (snapshot: Snapshot) => Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -40,8 +46,14 @@ export async function startWatcher(ctx: RepoContext, config: Config, events: Wat
     running = true;
     try {
       const taken = await createSnapshot(ctx, { label: 'otomatik', source: 'watch' });
-      if (taken) events.onSnapshot?.(taken);
-      else events.onUnchanged?.();
+      if (taken) {
+        events.onSnapshot?.(taken);
+        // An unchanged tree means no indexable file moved either, so the index
+        // only needs refreshing when a snapshot was actually written.
+        await events.onFlush?.(taken);
+      } else {
+        events.onUnchanged?.();
+      }
     } catch (error) {
       events.onError?.(error);
     } finally {

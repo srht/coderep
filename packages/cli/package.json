@@ -1,7 +1,7 @@
 {
   "name": "coderep",
   "version": "0.1.0",
-  "description": "AI kod editörleri için gölge-git checkpoint, geri alma ve bozulma avcısı",
+  "description": "AI kod edit\u00f6rleri i\u00e7in g\u00f6lge-git checkpoint, geri alma ve bozulma avc\u0131s\u0131",
   "type": "module",
   "bin": {
     "coderep": "./dist/index.js"
@@ -16,6 +16,7 @@
   "dependencies": {
     "@coderep/core": "workspace:*",
     "commander": "^13.0.0",
-    "@coderep/mcp": "workspace:*"
+    "@coderep/mcp": "workspace:*",
+    "@coderep/index": "workspace:*"
   }
 }

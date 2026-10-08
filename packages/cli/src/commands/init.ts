@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DEFAULT_CONFIG, loadConfig, resolveRepo, saveConfig, type RepoContext } from '@coderep/core';
+import { buildIndex } from '@coderep/index';
 import { bold, cyan, dim, green, yellow } from '../format.js';
 
 /** Every supported editor reads the same `mcpServers` shape, only from a different file. */
@@ -68,6 +69,17 @@ export async function initCommand(options: { editor?: string; force?: boolean })
   results.push(`${green('yazıldı')} .coderep/config.json`);
   results.push(await writeIgnoreStub(ctx));
 
+  // The index is what makes the MCP tools useful, so build it now rather than
+  // leaving the first agent call to pay for it.
+  try {
+    const built = await buildIndex(ctx);
+    results.push(
+      `${green('indekslendi')} ${built.index.files.length} dosya, ${built.symbols} sembol ${dim(`(${built.elapsedMs}ms)`)}`,
+    );
+  } catch (error) {
+    results.push(`${yellow('indeks atlandı')} ${dim(error instanceof Error ? error.message : String(error))}`);
+  }
+
   const requested = options.editor ?? 'all';
   const editors = requested === 'all' ? Object.keys(EDITOR_CONFIGS) : [requested];
 
@@ -85,9 +97,10 @@ export async function initCommand(options: { editor?: string; force?: boolean })
 
   console.log(
     `\n${dim('Sırada:')}\n` +
-      `  ${cyan('coderep watch')}   ${dim('— arka planda snapshot almaya başla')}\n` +
-      `  ${cyan('coderep log')}     ${dim('— zaman çizelgesini gör')}\n` +
-      `  ${cyan('coderep bisect -- npm test')}  ${dim('— hangi düzenlemenin bozduğunu bul')}\n\n` +
+      `  ${cyan('coderep watch')}                ${dim('— snapshot + indeks, arka planda')}\n` +
+      `  ${cyan('coderep find "login"')}         ${dim('— bir feature\'ın yerini bul')}\n` +
+      `  ${cyan('coderep bisect -- npm test')}   ${dim('— hangi düzenlemenin bozduğunu bul')}\n` +
+      `  ${cyan('coderep feature suggest')}      ${dim('— Türkçe sorgu için alias önerileri')}\n\n` +
       `${dim('MCP sunucusunu görmesi için editörü yeniden başlatın.')}`,
   );
 }

@@ -92,11 +92,15 @@ def name(self):
     const { symbols } = parsePython('app/routes.py', source);
 
     const endpoint = find(symbols, 'login_endpoint');
+    // A route decorator makes this a route, as it does in TypeScript.
+    expect(endpoint?.kind).toBe('route');
     // The decorator line opens the declaration.
     expect(endpoint?.startLine).toBe(6);
     expect(endpoint?.signature).toBe('@router.post("/api/login") async def login_endpoint(credentials: dict)');
     expect(endpoint?.strings).toContain('/api/login');
     expect(find(symbols, 'name')?.signature).toBe('@property def name(self)');
+    // @property is not a route decorator.
+    expect(find(symbols, 'name')?.kind).toBe('function');
   });
 
   it('follows a signature that spans several lines', () => {

@@ -49,9 +49,29 @@ export interface ResolveContext {
   aliases: PathAlias[];
 }
 
+/**
+ * ESM TypeScript is written `import './foo.js'` while the file on disk is
+ * `./foo.ts`. This is the dominant convention in modern TS projects (including
+ * this one), so a `.js` specifier must also be tried as its TS source.
+ */
+const JS_TO_TS: Record<string, string[]> = {
+  '.js': ['.ts', '.tsx'],
+  '.jsx': ['.tsx'],
+  '.mjs': ['.mts'],
+  '.cjs': ['.cts'],
+};
+
 const tryCandidates = (base: string, files: ReadonlySet<string>): string | null => {
   if (files.has(base)) return base;
-  for (const extension of TS_CANDIDATES) if (files.has(base + extension)) return base + extension;
+
+  const dotIndex = base.lastIndexOf('.');
+  const extension = dotIndex > base.lastIndexOf('/') ? base.slice(dotIndex) : '';
+  for (const replacement of JS_TO_TS[extension] ?? []) {
+    const candidate = base.slice(0, dotIndex) + replacement;
+    if (files.has(candidate)) return candidate;
+  }
+
+  for (const suffix of TS_CANDIDATES) if (files.has(base + suffix)) return base + suffix;
   for (const suffix of INDEX_CANDIDATES) if (files.has(base + suffix)) return base + suffix;
   return null;
 };

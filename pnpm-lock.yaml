@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@coderep/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@coderep/index':
+        specifier: workspace:*
+        version: link:packages/index
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.4
@@ -26,6 +32,9 @@ importers:
       '@coderep/core':
         specifier: workspace:*
         version: link:../core
+      '@coderep/index':
+        specifier: workspace:*
+        version: link:../index
       '@coderep/mcp':
         specifier: workspace:*
         version: link:../mcp
@@ -70,6 +79,9 @@ importers:
       '@coderep/core':
         specifier: workspace:*
         version: link:../core
+      '@coderep/index':
+        specifier: workspace:*
+        version: link:../index
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.30.0(zod@3.25.76)

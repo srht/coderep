@@ -5,6 +5,13 @@ const DEF = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/;
 const DECORATOR = /^\s*@/;
 const IMPORT_FROM = /^\s*from\s+([.\w]+)\s+import\b/;
 const IMPORT_PLAIN = /^\s*import\s+(.+)$/;
+/**
+ * Route decorators across the common frameworks: FastAPI/Flask/Blueprint
+ * (`@router.post(...)`, `@app.route(...)`) and Django's method guards.
+ */
+const ROUTE_DECORATOR =
+  /^@[\w.]*\.(get|post|put|patch|delete|head|options|route|websocket)\s*\(|^@(api_view|require_http_methods)\b/i;
+
 const STRING_LITERAL = /(?:'''|""")([\s\S]*?)(?:'''|""")|'([^'\n\\]{3,80})'|"([^"\n\\]{3,80})"/g;
 
 /** Net bracket depth of a line, so a signature split across lines is followed to its end. */
@@ -143,7 +150,14 @@ export function parsePython(path: string, text: string): ParseResult {
 
     const parent = stack.length > 0 ? (stack[stack.length - 1] as { name: string; kind: SymbolKind }) : undefined;
     const isClass = keyword === 'class';
-    const kind: SymbolKind = isClass ? 'class' : parent?.kind === 'class' ? 'method' : 'function';
+    const isRoute = !isClass && pendingDecorators.some((decorator) => ROUTE_DECORATOR.test(decorator));
+    const kind: SymbolKind = isClass
+      ? 'class'
+      : isRoute
+        ? 'route'
+        : parent?.kind === 'class'
+          ? 'method'
+          : 'function';
 
     // A multi-line signature is part of this declaration, not the previous one.
     lastBodyLine = last + 1;

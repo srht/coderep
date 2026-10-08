@@ -15,6 +15,16 @@ import {
   type RepoContext,
   type Snapshot,
 } from '@coderep/core';
+import {
+  buildMap,
+  ensureIndex,
+  findReferences,
+  getSymbolSource,
+  loadFeatures,
+  outline,
+  search,
+  type SymbolKind,
+} from '@coderep/index';
 
 /** Tool descriptions stay terse on purpose: they are re-sent on every request. */
 const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }] });
@@ -204,6 +214,126 @@ export function createMcpServer(): McpServer {
       return text(
         [`Geri alındı → ${summarise(target)}`, result.stat.trim(), '', `Geri almayı geri al: coderep restore ${result.preRestore.slice(0, 8)}`].join('\n'),
       );
+    }),
+  );
+
+  // --- code map -----------------------------------------------------------
+  // These are the token saving: one find plus one get_symbol replaces globbing
+  // the project and reading whole files.
+
+  server.registerTool(
+    'find_feature',
+    {
+      description: 'Locate a feature: ranked file + symbol + line for a natural-language query.',
+      inputSchema: {
+        query: z.string().describe('e.g. "login flow"'),
+        limit: z.number().int().positive().max(50).optional(),
+        kind: z
+          .enum(['function', 'class', 'method', 'interface', 'type', 'enum', 'component', 'hook', 'route', 'const'])
+          .optional(),
+      },
+    },
+    guard(async ({ query, limit, kind }) => {
+      const ctx = await repo();
+      const [index, features] = await Promise.all([ensureIndex(ctx), loadFeatures(ctx)]);
+      const hits = search(index, query, {
+        features,
+        limit: limit ?? 10,
+        ...(kind ? { kind: kind as SymbolKind } : {}),
+      });
+
+      if (hits.length === 0) {
+        return text(
+          'Eşleşme yok. Kod İngilizce, sorgu başka dilde ise .coderep/features.yml içine alias ekleyin.',
+        );
+      }
+      return text(
+        hits
+          .map((hit) => {
+            const name = hit.parent ? `${hit.parent}.${hit.name}` : hit.name;
+            const doc = hit.doc ? `\n   ${hit.doc}` : '';
+            return `${hit.file}:${hit.startLine}-${hit.endLine} ${name} [${hit.kind}] (${hit.why.join('+')})\n   ${hit.signature}${doc}`;
+          })
+          .join('\n'),
+      );
+    }),
+  );
+
+  server.registerTool(
+    'get_symbol',
+    {
+      description: 'Source of one symbol only, not the whole file. Name may be "Class.method".',
+      inputSchema: {
+        file: z.string().describe('Repo-relative path'),
+        name: z.string(),
+        include: z.enum(['signature', 'body']).optional().describe('Default body'),
+      },
+    },
+    guard(async ({ file, name, include }) => {
+      const ctx = await repo();
+      const index = await ensureIndex(ctx);
+      const source = await getSymbolSource(ctx, index, file, name, include ?? 'body');
+      if (!source) return text(`${file} içinde "${name}" bulunamadı. outline ile dosyanın sembollerini görün.`);
+      return text(
+        source.body
+          ? `${source.file}:${source.startLine}-${source.endLine}\n${source.body}`
+          : `${source.file}:${source.startLine}-${source.endLine}\n${source.signature}`,
+      );
+    }),
+  );
+
+  server.registerTool(
+    'outline',
+    {
+      description: 'Signatures and line ranges for one file, without its bodies.',
+      inputSchema: { file: z.string().describe('Repo-relative path') },
+    },
+    guard(async ({ file }) => {
+      const ctx = await repo();
+      const index = await ensureIndex(ctx);
+      const rows = outline(index, file);
+      if (!rows) return text(`İndekste yok: ${file}`);
+      if (rows.length === 0) return text('Bu dosyada sembol yok.');
+      return text(
+        rows
+          .map((row) => {
+            const name = row.parent ? `${row.parent}.${row.name}` : row.name;
+            return `${row.startLine}-${row.endLine} ${row.exported ? 'export ' : ''}${row.kind} ${name} — ${row.signature}`;
+          })
+          .join('\n'),
+      );
+    }),
+  );
+
+  server.registerTool(
+    'references',
+    {
+      description: 'Where a name is used, with the enclosing symbol. Check this before editing.',
+      inputSchema: { name: z.string(), limit: z.number().int().positive().max(300).optional() },
+    },
+    guard(async ({ name, limit }) => {
+      const ctx = await repo();
+      const index = await ensureIndex(ctx);
+      const refs = await findReferences(ctx, index, name, limit ?? 100);
+      if (refs.length === 0) return text(`"${name}" için kullanım bulunamadı.`);
+      return text(
+        refs.map((ref) => `${ref.file}:${ref.line}${ref.symbol ? ` (${ref.symbol})` : ''}  ${ref.text}`).join('\n'),
+      );
+    }),
+  );
+
+  server.registerTool(
+    'repo_map',
+    {
+      description: 'Ranked map of files and their exported symbols, fitted to a token budget.',
+      inputSchema: {
+        budgetTokens: z.number().int().positive().max(20000).optional().describe('Default 2000'),
+      },
+    },
+    guard(async ({ budgetTokens }) => {
+      const ctx = await repo();
+      const index = await ensureIndex(ctx);
+      return text(buildMap(index, { budgetTokens: budgetTokens ?? 2000 }));
     }),
   );
 

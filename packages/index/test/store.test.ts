@@ -151,6 +151,36 @@ describe('buildIndex', () => {
     }
   });
 
+  it('resolves an ESM .js specifier to its TypeScript source', async () => {
+    // The dominant convention in modern TS ESM: write `./b.js`, ship `./b.ts`.
+    const repo = await makeRepo({
+      'src/a.ts': `import { b } from './b.js';\nexport const a = b;\n`,
+      'src/b.ts': `export const b = 1;\n`,
+      'src/c.ts': `import { D } from './d.jsx';\nexport const c = D;\n`,
+      'src/d.tsx': `export const D = () => <i />;\n`,
+    });
+    try {
+      const { index } = await buildIndex(repo);
+      expect(index.files.find((entry) => entry.path === 'src/a.ts')?.imports).toEqual(['src/b.ts']);
+      expect(index.files.find((entry) => entry.path === 'src/c.ts')?.imports).toEqual(['src/d.tsx']);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
+  it('still prefers a real .js file over its .ts sibling guess', async () => {
+    const repo = await makeRepo({
+      'src/a.ts': `import { b } from './b.js';\nexport const a = b;\n`,
+      'src/b.js': `export const b = 1;\n`,
+    });
+    try {
+      const { index } = await buildIndex(repo);
+      expect(index.files.find((entry) => entry.path === 'src/a.ts')?.imports).toEqual(['src/b.js']);
+    } finally {
+      await repo.cleanup();
+    }
+  });
+
   it('resolves tsconfig path aliases', async () => {
     const repo = await makeRepo({
       'tsconfig.json': `{

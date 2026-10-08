@@ -10,6 +10,16 @@ import { bisectCommand } from './commands/bisect.js';
 import { watchCommand } from './commands/watch.js';
 import { statusCommand } from './commands/status.js';
 import { pruneCommand } from './commands/prune.js';
+import { indexCommand } from './commands/index-cmd.js';
+import { findCommand } from './commands/find.js';
+import { outlineCommand } from './commands/outline.js';
+import { mapCommand } from './commands/map.js';
+import {
+  featureAddCommand,
+  featureListCommand,
+  featureRemoveCommand,
+  featureSuggestCommand,
+} from './commands/feature.js';
 
 const program = new Command();
 
@@ -85,6 +95,55 @@ program
   .requiredOption('--older-than <süre>', 'örn. 7d')
   .option('--keep-labeled', 'elle alınmış snapshot\'ları yaşı ne olursa olsun tut')
   .action(pruneCommand);
+
+// --- kod haritası ---------------------------------------------------------
+
+program
+  .command('index')
+  .description('sembol indeksini kurar ya da yeniler (sadece değişen dosyaları parse eder)')
+  .option('-f, --force', 'her şeyi yeniden parse et')
+  .option('-s, --stats', 'dil, sembol türü ve en çok import edilen dosyalar')
+  .action(indexCommand);
+
+program
+  .command('find')
+  .description('bir feature\'ın hangi dosya ve sembolde olduğunu bulur')
+  .argument('<query...>', 'örn. login akışı')
+  .option('-n, --limit <sayı>', 'kaç sonuç', '10')
+  .option('-k, --kind <tür>', 'function | class | component | hook | route | ...')
+  .action(findCommand);
+
+program
+  .command('outline')
+  .description('bir dosyanın sadece imzalarını listeler')
+  .argument('<file>', 'repo köküne göreli yol')
+  .action(outlineCommand);
+
+program
+  .command('map')
+  .description('token bütçesine sığdırılmış repo haritası')
+  .option('-b, --budget <token>', 'yaklaşık token sınırı', '2000')
+  .option('-p, --private', 'ihraç edilmemiş sembolleri de göster')
+  .action(mapCommand);
+
+const feature = program.command('feature').description('feature -> yol haritasını yönetir');
+
+feature.command('list').description('tanımlı feature\'ları gösterir').action(featureListCommand);
+
+feature
+  .command('add')
+  .description('feature ekler ya da günceller')
+  .argument('<name>', 'feature adı, örn. login')
+  .argument('<paths...>', 'glob\'lar, örn. "src/auth/**"')
+  .option('-a, --alias <alias...>', 'Türkçe ya da başka eş anlamlılar')
+  .action(featureAddCommand);
+
+feature.command('rm').description('feature siler').argument('<name>').action(featureRemoveCommand);
+
+feature
+  .command('suggest')
+  .description('koda bakıp aday feature\'lar önerir')
+  .action(featureSuggestCommand);
 
 program
   .command('mcp')
